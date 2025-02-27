@@ -1,0 +1,8 @@
+# train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
+train: ./boxData/img_lab/train.txt
+val: ./boxData/img_lab/val.txt
+test: ./boxData/img_lab/test.txt
+nc: 1  # 修改为自己类别数
+
+# class names
+names: ['hatch']

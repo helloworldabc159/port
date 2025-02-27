@@ -1,0 +1,190 @@
+import datetime
+import random
+
+import open3d as o3d
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial import ConvexHull
+import json
+import pandas as pd
+import os
+
+from sklearn.neighbors import KernelDensity
+
+import pandas as pd
+import os
+from matplotlib import rcParams
+
+
+def append_data_to_excel(file_name, new_data, sheet_name='Sheet1'):
+    """
+    将新数据追加到指定的 Excel 文件中。
+
+    参数:
+    file_name (str): Excel 文件的名称（包括路径，如果不在当前目录）。
+    new_data (list): 要追加的新数据，应该是一个列表，其长度与列数相匹配。
+    sheet_name (str, 可选): 要写入的 Excel 工作表的名称。默认为 'Sheet1'。
+    """
+    # 将新数据转换为 DataFrame
+    df = pd.DataFrame([new_data], columns=[f'Column{i + 1}' for i in range(len(new_data))])
+
+    # 尝试读取现有的 Excel 文件和工作表
+    try:
+        # 使用 ExcelWriter 以追加模式打开文件，并指定引擎为 openpyxl
+        with pd.ExcelWriter(file_name, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+            # 读取现有的数据（仅读取指定的工作表）
+            existing_df = pd.read_excel(file_name, sheet_name=sheet_name, engine='openpyxl')
+
+            # 将新数据追加到现有数据（忽略索引）
+            combined_df = pd.concat([existing_df, df], ignore_index=True)
+
+            # 将合并后的数据写回到指定的工作表
+            combined_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    except FileNotFoundError:
+        # 如果文件不存在，直接写入新数据到新的工作表
+        df.to_excel(file_name, sheet_name=sheet_name, index=False, engine='openpyxl')
+
+
+def save_boundary_plot(points_2d, max_y_point, hull_points, filename_prefix='plots/boundary_plot'):
+    """
+    保存点的边界展示图。
+
+    :param points_2d: 原始点的二维数组。
+    :param max_y_point: 角点的坐标。
+    :param hull_points: 边界点的坐标。
+    :param filename_prefix: 文件名前缀，默认为 'boundary_plot'。
+    """
+    plt.plot(points_2d[:, 0], points_2d[:, 1], 'o', label='原始点')
+    plt.plot(max_y_point[0], max_y_point[1], 'X', label='角点')
+    plt.plot(hull_points[:, 0], hull_points[:, 1], 'r-', label='边界')
+    plt.fill(hull_points[:, 0], hull_points[:, 1], 'r', alpha=0.2)  # 填充边界区域
+    plt.legend()
+    plt.xlabel('第一列 (X轴)')
+    plt.ylabel('第三列 (Z轴)')
+    plt.title('点的边界展示 (只使用第一列和第三列)')
+
+    # 生成唯一文件名
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"{filename_prefix}_{timestamp}.png"
+
+    # 保存图像到文件
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.clf()  # 清理当前图形
+
+
+def findlefttoppoint():
+    # 从 JSON 文件中读取数据
+    try:
+        with open('newData.json', 'r') as f:
+            data = json.load(f)
+
+        # print('读取的数据:', data)
+
+    except FileNotFoundError:
+        print('错误: newdata.json 文件未找到。')
+    except json.JSONDecodeError:
+        print('错误: JSON 解码失败。请检查文件内容。')
+    except Exception as e:
+        print(f'发生错误: {e}')
+    points_3d = np.array(data)
+
+    # 只提取第一列和第三列
+    points_2d = points_3d[:, [1, 2]]
+    #
+    # # 计算凸包
+    # # 凸包就是包含点集的最小凸多边形
+    hull = ConvexHull(points_2d)
+    #
+    # 提取边界点
+    hull_points = points_2d[hull.vertices]
+    # print(hull_points)
+    # print("hull_points shape:", hull_points.shape)
+    # 区域
+    step = 0.2
+    max_y_index = np.argmax(hull_points[:, 0])
+    max_y = hull_points[max_y_index, 0]
+    # print(f'最小的x点坐标{min_x}')
+    # filtered_points = hull_points[(hull_points[:, 0] > min_x) & (hull_points[:,0] < min_x + step)]
+    filtered_points = hull_points[(hull_points[:, 0] <= max_y) & (hull_points[:, 0] >= max_y - step)]
+    print(f'过滤后的点{filtered_points}')
+
+    # print(hull_points[:,0])
+
+    max_z_index = np.argmax(filtered_points[:, 1])  # 获取 z 最大值的索引
+    max_z_point = filtered_points[max_z_index]  # 获取 y 最大值的点
+    # print(f'最大的y点坐标{max_y_point}')
+
+    # 求出最大的那个点（x,y,z）
+    leftTopPoint3d = points_3d[(points_3d[:, 1] == max_z_point[0]) & (points_3d[:, 2] == max_z_point[1])]
+    # print(f'dataFromTest{leftTopPoint3d[0]}')
+    append_data_to_excel('newdata.xlsx', leftTopPoint3d[0])
+    return np.asarray(leftTopPoint3d)
+
+
+def compute_kde_density(points, bandwidth=None):
+    if bandwidth is None:
+        # 自动选择带宽（可以使用 Scott's or Silverman's method）
+        bandwidth = np.std(points) * len(points) ** (-1 / 5.)
+    kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(points)
+    log_density = kde.score_samples(points)
+    density = np.exp(log_density)
+    return density
+
+
+if __name__ == '__main__':
+    try:
+        with open('newdata.json', 'r') as f:
+            data = json.load(f)
+
+        # print('读取的数据:', data)
+
+    except FileNotFoundError:
+        print('错误: data.json 文件未找到。')
+    except json.JSONDecodeError:
+        print('错误: JSON 解码失败。请检查文件内容。')
+    except Exception as e:
+        print(f'发生错误: {e}')
+    points_3d = np.array(data)
+
+    # 只提取第一列和第三列
+    points_2d = points_3d[:, [1, 2]]
+    #
+    # # 计算凸包
+    # # 凸包就是包含点集的最小凸多边形
+    hull = ConvexHull(points_2d)
+    #
+    # 提取边界点
+    hull_points = points_2d[hull.vertices]
+    # print(hull_points)
+    # print("hull_points shape:", hull_points.shape)
+    # 区域
+    step = 0.05
+    max_y_index = np.argmax(hull_points[:, 0])
+    max_y = hull_points[max_y_index, 0]
+    # print(f'最小的x点坐标{min_x}')
+    # filtered_points = hull_points[(hull_points[:, 0] > min_x) & (hull_points[:,0] < min_x + step)]
+    filtered_points = hull_points[(hull_points[:, 0] <= max_y) & (hull_points[:, 0] >= max_y - step)]
+    print(f'过滤后的点{filtered_points}')
+
+    # print(hull_points[:,0])
+
+    max_z_index = np.argmax(filtered_points[:, 1])  # 获取 z 最大值的索引
+    max_z_point = filtered_points[max_z_index]  # 获取 y 最大值的点
+    # print(f'最大的y点坐标{max_y_point}')
+
+    # 求出最大的那个点（x,y,z）
+    leftTopPoint3d = points_3d[(points_3d[:, 1] == max_z_point[0]) & (points_3d[:, 2] == max_z_point[1])]
+    print('1')
+    print('角点坐标', leftTopPoint3d)
+    # 绘制点和边界
+    rcParams['font.family'] = 'SimHei'
+    plt.plot(points_2d[:, 0], points_2d[:, 1], 'o', label='原始点')
+    plt.plot(max_z_point[0], max_z_point[1], 'X', label='角点')
+    plt.plot(hull_points[:, 0], hull_points[:, 1], 'r-', label='边界')
+    plt.fill(hull_points[:, 0], hull_points[:, 1], 'r', alpha=0.2)  # 填充边界区域
+    plt.legend()
+    plt.xlabel('第二列 (y轴)')
+    plt.ylabel('第三列 (Z轴)')
+    plt.title('点的边界展示 (只使用第二列和第三列)')
+    plt.show()

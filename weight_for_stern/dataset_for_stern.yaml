@@ -1,0 +1,6 @@
+train: my_dataset/images/train
+val: my_dataset/images/train
+
+nc: 1
+
+names: ['stern']
